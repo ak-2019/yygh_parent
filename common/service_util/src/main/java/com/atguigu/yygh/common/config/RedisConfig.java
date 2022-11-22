@@ -25,7 +25,7 @@ import java.time.Duration;
  * @Date 2021/12/28 19:29
  * @Description
  */
-@Configuration
+@Configuration//表示配置类
 @EnableCaching
 public class RedisConfig {
 
