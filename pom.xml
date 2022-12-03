@@ -9,6 +9,9 @@
         <module>model</module>
         <module>service</module>
         <module>service/service_user</module>
+        <module>service_client</module>
+        <module>service_cmn_client</module>
+        <module>abc</module>
     </modules>
     <parent>
         <groupId>org.springframework.boot</groupId>
