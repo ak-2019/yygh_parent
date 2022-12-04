@@ -12,6 +12,7 @@
         <module>service_client</module>
         <module>service_cmn_client</module>
         <module>abc</module>
+        <module>service_gateway</module>
     </modules>
     <parent>
         <groupId>org.springframework.boot</groupId>

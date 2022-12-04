@@ -25,7 +25,7 @@ import java.util.Random;
 @Api(tags = "医院设置管理")
 @RestController//返回json数据
 @RequestMapping("/admin/hosp/hospitalSet")
-@CrossOrigin
+//@CrossOrigin
 public class HospitalSetController {
 
     //注入service

@@ -116,8 +116,7 @@ public class ScheduleServiceImpl implements ScheduleService {
                 Aggregation.limit(limit)
         );
         //调用方法，最终执行
-        AggregationResults<BookingScheduleRuleVo> aggResults =
-                mongoTemplate.aggregate(agg, Schedule.class, BookingScheduleRuleVo.class);
+        AggregationResults<BookingScheduleRuleVo> aggResults = mongoTemplate.aggregate(agg, Schedule.class, BookingScheduleRuleVo.class);
         List<BookingScheduleRuleVo> bookingScheduleRuleVoList = aggResults.getMappedResults();
 
         //分组查询的总记录数
