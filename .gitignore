@@ -29,3 +29,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### mi ###
+/service/service_msm/src/main/resources
