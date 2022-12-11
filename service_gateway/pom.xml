@@ -22,11 +22,11 @@
             <artifactId>common_util</artifactId>
             <version>1.0</version>
         </dependency>
-        <dependency>
-            <groupId>com.atguigu.yygh</groupId>
-            <artifactId>service_util</artifactId>
-            <version>1.0</version>
-        </dependency>
+<!--        <dependency>-->
+<!--            <groupId>com.atguigu.yygh</groupId>-->
+<!--            <artifactId>service_util</artifactId>-->
+<!--            <version>1.0</version>-->
+<!--        </dependency>-->
 
         <dependency>
             <groupId>org.springframework.cloud</groupId>
