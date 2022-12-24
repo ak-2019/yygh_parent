@@ -1,17 +1,27 @@
 package com.atguigu.yygh.hosp.service.impl;
 
 import com.alibaba.fastjson.JSONObject;
+import com.atguigu.yygh.common.exception.YyghException;
+import com.atguigu.yygh.common.result.ResultCodeEnum;
+import com.atguigu.yygh.hosp.mapper.ScheduleMapper;
 import com.atguigu.yygh.hosp.repository.ScheduleRepository;
 import com.atguigu.yygh.hosp.service.DepartmentService;
 import com.atguigu.yygh.hosp.service.HospitalService;
 import com.atguigu.yygh.hosp.service.ScheduleService;
+import com.atguigu.yygh.model.hosp.BookingRule;
+import com.atguigu.yygh.model.hosp.Department;
+import com.atguigu.yygh.model.hosp.Hospital;
 import com.atguigu.yygh.model.hosp.Schedule;
 import com.atguigu.yygh.vo.hosp.BookingScheduleRuleVo;
+import com.atguigu.yygh.vo.hosp.ScheduleOrderVo;
 import com.atguigu.yygh.vo.hosp.ScheduleQueryVo;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.sun.javafx.scene.control.TableColumnSortTypeWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeConstants;
+import org.joda.time.format.DateTimeFormat;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.*;
@@ -20,11 +30,10 @@ import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -37,7 +46,7 @@ import java.util.Map;
  */
 @Service
 @Slf4j
-public class ScheduleServiceImpl implements ScheduleService {
+public class ScheduleServiceImpl extends ServiceImpl<ScheduleMapper, Schedule> implements ScheduleService {
 
     @Autowired
     private ScheduleRepository scheduleRepository;
@@ -150,22 +159,209 @@ public class ScheduleServiceImpl implements ScheduleService {
     @Override
     public List<Schedule> getDetailSchedule(String hoscode, String depcode, String workDate) {
         //根据参数查询mongodb
-        List<Schedule> scheduleList =
-                scheduleRepository.findScheduleByHoscodeAndDepcodeAndWorkDate(hoscode,depcode,new DateTime(workDate).toDate());
+        List<Schedule> scheduleList = scheduleRepository.findScheduleByHoscodeAndDepcodeAndWorkDate(hoscode, depcode, new DateTime(workDate).toDate());
         //把得到list集合遍历，向设置其他值：医院名称、科室名称、日期对应星期
-        scheduleList.stream().forEach(item->{
+        scheduleList.stream().forEach(item -> {
             this.packageSchedule(item);
         });
         return scheduleList;
     }
+
+    @Override
+    public Map<String, Object> getBookingScheduleRule(int page, int limit, String hoscode, String depcode) {
+        Map<String, Object> result = new HashMap<>();
+
+        //获取预约规则
+        Hospital hospital = hospitalService.getByHoscode(hoscode);
+        if (hospital == null) {
+            throw new YyghException(ResultCodeEnum.DATA_ERROR);
+        }
+        BookingRule bookingRule = hospital.getBookingRule();
+
+        //获取可预约日期分页数据
+        IPage iPage = this.getListDate(page, limit, bookingRule);
+        //当前页可预约日期
+        List<Date> dateList = iPage.getRecords();
+        //获取可预约日期科室剩余预约数
+        Criteria criteria = Criteria.where("hoscode").is(hoscode).and("depcode").is(depcode).and("workDate").in(dateList);
+        Aggregation agg = Aggregation.newAggregation(
+                Aggregation.match(criteria),
+                Aggregation.group("workDate")//分组字段
+                        .first("workDate").as("workDate")
+                        .count().as("docCount")
+                        .sum("availableNumber").as("availableNumber")
+                        .sum("reservedNumber").as("reservedNumber")
+        );
+        AggregationResults<BookingScheduleRuleVo> aggregationResults = mongoTemplate.aggregate(agg, Schedule.class, BookingScheduleRuleVo.class);
+        List<BookingScheduleRuleVo> scheduleVoList = aggregationResults.getMappedResults();
+        //获取科室剩余预约数
+
+        //合并数据 将统计数据ScheduleVo根据“安排日期”合并到BookingRuleVo
+        Map<Date, BookingScheduleRuleVo> scheduleVoMap = new HashMap<>();
+        if (!CollectionUtils.isEmpty(scheduleVoList)) {
+            scheduleVoMap = scheduleVoList.stream().
+                    collect(
+                            Collectors.toMap(BookingScheduleRuleVo::getWorkDate,
+                                    BookingScheduleRuleVo -> BookingScheduleRuleVo));
+        }
+        //获取可预约排班规则
+        List<BookingScheduleRuleVo> bookingScheduleRuleVoList = new ArrayList<>();
+        for (int i = 0, len = dateList.size(); i < len; i++) {
+            Date date = dateList.get(i);
+            BookingScheduleRuleVo bookingScheduleRuleVo = scheduleVoMap.get(date);
+            if (null == bookingScheduleRuleVo) { // 说明当天没有排班医生
+                bookingScheduleRuleVo = new BookingScheduleRuleVo();
+                bookingScheduleRuleVo.setDocCount(0);//就诊医生人数
+                bookingScheduleRuleVo.setAvailableNumber(-1);//科室剩余预约数  -1表示无号
+            }
+            bookingScheduleRuleVo.setWorkDate(date);
+            bookingScheduleRuleVo.setWorkDateMd(date);
+            //计算当前预约日期为周几
+            String dayOfWeek = this.getDayOfWeek(new DateTime(date));
+            bookingScheduleRuleVo.setDayOfWeek(dayOfWeek);
+
+            //最后一页最后一条记录为即将预约   状态 0：正常 1：即将放号 -1：当天已停止挂号
+            if (i == len - 1 && page == iPage.getPages()) {
+                bookingScheduleRuleVo.setStatus(1);
+            } else {
+                bookingScheduleRuleVo.setStatus(0);
+            }
+            //当天预约如果过了停号时间， 不能预约
+            if (i == 0 && page == 1) {
+                DateTime stopTime = this.getDateTime(new Date(), bookingRule.getStopTime());
+                if (stopTime.isBeforeNow()) {
+                    bookingScheduleRuleVo.setStatus(-1);//停止预约
+                }
+            }
+            bookingScheduleRuleVoList.add(bookingScheduleRuleVo);
+        }
+        result.put("bookingScheduleList", bookingScheduleRuleVoList);//可预约日期规则数据
+        result.put("total", iPage.getTotal());
+        Map<String, String> baseMap = new HashMap<>();//其他基础数据
+        baseMap.put("hosname", hospitalService.getHospName(hoscode));//医院名称
+        Department department = departmentService.getDepartment(hoscode, depcode);//科室
+        baseMap.put("bigname", department.getBigname());//大科室名称
+        baseMap.put("depname", department.getDepname()); //科室名称
+        baseMap.put("workDateString", new DateTime().toString("yyyy年MM月"));//月
+        baseMap.put("releaseTime", bookingRule.getReleaseTime());//放号时间
+        baseMap.put("stopTime", bookingRule.getStopTime());//停号时间
+        result.put("baseMap", baseMap);
+        return result;
+    }
+
+    @Override
+    public Schedule getById(String id) {
+        Schedule schedule = scheduleRepository.findById(id).get();
+        return this.packageSchedule(schedule);
+    }
+
+    //根据排班id获取预约下单数据
+    @Override
+    public ScheduleOrderVo getScheduleOrderVo(String scheduleId) {
+        ScheduleOrderVo scheduleOrderVo = new ScheduleOrderVo();
+        //排班信息
+        Schedule schedule = scheduleRepository.findById(scheduleId).get();
+        if (null == schedule) {
+            throw new YyghException(ResultCodeEnum.PARAM_ERROR);
+        }
+
+        //获取预约规则信息
+        Hospital hospital = hospitalService.getByHoscode(schedule.getHoscode());
+        if (null == hospital) {
+            throw new YyghException(ResultCodeEnum.DATA_ERROR);
+        }
+        BookingRule bookingRule = hospital.getBookingRule();
+        if (null == bookingRule) {
+            throw new YyghException(ResultCodeEnum.PARAM_ERROR);
+        }
+
+        scheduleOrderVo.setHoscode(schedule.getHoscode());
+        scheduleOrderVo.setHosname(hospitalService.getHospName(schedule.getHoscode()));
+        scheduleOrderVo.setDepcode(schedule.getDepcode());
+        scheduleOrderVo.setDepname(departmentService.getDepName(schedule.getHoscode(), schedule.getDepcode()));
+        scheduleOrderVo.setHosScheduleId(schedule.getHosScheduleId());
+        scheduleOrderVo.setAvailableNumber(schedule.getAvailableNumber());
+        scheduleOrderVo.setTitle(schedule.getTitle());
+        scheduleOrderVo.setReserveDate(schedule.getWorkDate());
+        scheduleOrderVo.setReserveTime(schedule.getWorkTime());
+        scheduleOrderVo.setAmount(schedule.getAmount());
+
+        //退号截止天数（如：就诊前一天为-1，当天为0）
+        int quitDay = bookingRule.getQuitDay();
+        DateTime quitTime = this.getDateTime(new DateTime(schedule.getWorkDate()).plusDays(quitDay).toDate(), bookingRule.getQuitTime());
+        scheduleOrderVo.setQuitTime(quitTime.toDate());
+
+        //预约开始时间
+        DateTime startTime = this.getDateTime(new Date(), bookingRule.getReleaseTime());
+        scheduleOrderVo.setStartTime(startTime.toDate());
+
+        //预约截止时间
+        DateTime endTime = this.getDateTime(new DateTime().plusDays(bookingRule.getCycle()).toDate(), bookingRule.getStopTime());
+        scheduleOrderVo.setEndTime(endTime.toDate());
+
+        //当天停止挂号时间
+        DateTime stopTime = this.getDateTime(new Date(), bookingRule.getStopTime());
+        scheduleOrderVo.setStartTime(startTime.toDate());
+        return scheduleOrderVo;
+    }
+
+    @Override
+    public void update(Schedule schedule) {
+        schedule.setUpdateTime(new Date());
+        //主键一致就是更新
+        scheduleRepository.save(schedule);
+    }
+
+    /**
+     * 获取可预约日期分页数据
+     */
+    private IPage<Date> getListDate(int page, int limit, BookingRule bookingRule) {
+        //当天放号时间
+        DateTime releaseTime = this.getDateTime(new Date(), bookingRule.getReleaseTime());
+        //预约周期
+        int cycle = bookingRule.getCycle();
+        //如果当天放号时间已过，则预约周期后一天为即将放号时间，周期加1
+        if (releaseTime.isBeforeNow()) cycle += 1;
+        //可预约所有日期，最后一天显示即将放号倒计时
+        List<Date> dateList = new ArrayList<>();
+        for (int i = 0; i < cycle; i++) {
+            //计算当前预约日期
+            DateTime curDateTime = new DateTime().plusDays(i);
+            String dateString = curDateTime.toString("yyyy-MM-dd");
+            dateList.add(new DateTime(dateString).toDate());
+        }
+        //日期分页，由于预约周期不一样，页面一排最多显示7天数据，多了就要分页显示
+        List<Date> pageDateList = new ArrayList<>();
+        int start = (page - 1) * limit;
+        int end = (page - 1) * limit + limit;
+        if (end > dateList.size()) end = dateList.size();
+        for (int i = start; i < end; i++) {
+            pageDateList.add(dateList.get(i));
+        }
+        IPage<Date> iPage = new com.baomidou.mybatisplus.extension.plugins.pagination.Page(page, 7, dateList.size());
+        iPage.setRecords(pageDateList);
+        return iPage;
+    }
+
+    /**
+     * 将Date日期（yyyy-MM-dd HH:mm）转换为DateTime
+     */
+    private DateTime getDateTime(Date date, String timeString) {
+        String dateTimeString = new DateTime(date).toString("yyyy-MM-dd") + " " + timeString;
+        DateTime dateTime = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm").parseDateTime(dateTimeString);
+        return dateTime;
+    }
+
     //封装排班详情其他值 医院名称、科室名称、日期对应星期
-    private void packageSchedule(Schedule schedule) {
+    private Schedule packageSchedule(Schedule schedule) {
         //设置医院名称
-        schedule.getParam().put("hosname",hospitalService.getHospName(schedule.getHoscode()));
+        schedule.getParam().put("hosname", hospitalService.getHospName(schedule.getHoscode()));
         //设置科室名称
-        schedule.getParam().put("depname",departmentService.getDepName(schedule.getHoscode(),schedule.getDepcode()));
+        schedule.getParam().put("depname", departmentService.getDepName(schedule.getHoscode(), schedule.getDepcode()));
         //设置日期对应星期
-        schedule.getParam().put("dayOfWeek",this.getDayOfWeek(new DateTime(schedule.getWorkDate())));
+        schedule.getParam().put("dayOfWeek", this.getDayOfWeek(new DateTime(schedule.getWorkDate())));
+
+        return schedule;
     }
 
     /**

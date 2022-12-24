@@ -12,6 +12,9 @@
     <artifactId>common</artifactId>
     <packaging>pom</packaging>
     <version>1.0</version>
+    <modules>
+        <module>rabbit_util</module>
+    </modules>
 
     <dependencies>
         <dependency>

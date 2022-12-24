@@ -51,7 +51,7 @@ public class HospitalServiceImpl implements HospitalService {
         log.info(JSONObject.toJSONString(paramMap));
         String hoscode = (String)paramMap.get("hoscode");
         String depcode = (String)paramMap.get("depcode");
-        String hosScheduleId = (String)paramMap.get("hosScheduleId");
+        String hosScheduleId = "1L";//(String)paramMap.get("hosScheduleId");
         String reserveDate = (String)paramMap.get("reserveDate");
         String reserveTime = (String)paramMap.get("reserveTime");
         String amount = (String)paramMap.get("amount");
@@ -75,14 +75,15 @@ public class HospitalServiceImpl implements HospitalService {
 
         Map<String, Object> resultMap = new HashMap<>();
         int availableNumber = schedule.getAvailableNumber().intValue() - 1;
-        if(availableNumber > 0) {
+        if(availableNumber >= 0) {
             schedule.setAvailableNumber(availableNumber);
             hospitalMapper.updateById(schedule);
 
             //记录预约记录
             OrderInfo orderInfo = new OrderInfo();
             orderInfo.setPatientId(patientId);
-            orderInfo.setScheduleId(Long.parseLong(hosScheduleId));
+//            orderInfo.setScheduleId(Long.parseLong(hosScheduleId));
+            orderInfo.setScheduleId(1L);
             int number = schedule.getReservedNumber().intValue() - schedule.getAvailableNumber().intValue();
             orderInfo.setNumber(number);
             orderInfo.setAmount(new BigDecimal(amount));

@@ -1,6 +1,7 @@
 package com.atguigu.yygh.vo.hosp;
 
 import com.baomidou.mybatisplus.annotation.TableField;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.Data;
@@ -42,15 +43,19 @@ public class ScheduleOrderVo {
 	@ApiModelProperty(value = "医事服务费")
 	private BigDecimal amount;
 
+	@JsonFormat(pattern = "yyyy-MM-dd")
 	@ApiModelProperty(value = "退号时间")
 	private Date quitTime;
 
+	@JsonFormat(pattern = "yyyy-MM-dd")
 	@ApiModelProperty(value = "挂号开始时间")
 	private Date startTime;
 
+	@JsonFormat(pattern = "yyyy-MM-dd")
 	@ApiModelProperty(value = "挂号结束时间")
 	private Date endTime;
 
+	@JsonFormat(pattern = "yyyy-MM-dd")
 	@ApiModelProperty(value = "当天停止挂号时间")
 	private Date stopTime;
 }

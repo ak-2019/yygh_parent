@@ -1,4 +1,4 @@
-package com.atguigu.yygh.user.controller;
+package com.atguigu.yygh.user.api;
 
 import com.atguigu.yygh.common.result.Result;
 import com.atguigu.yygh.common.utils.AuthContextHolder;
@@ -41,7 +41,7 @@ public class UserInfoApiController {
     @PostMapping("auth/userAuth")
     public Result userAuth(@RequestBody UserAuthVo userAuthVo, HttpServletRequest request) {
         //传递两个参数，第一个参数用户id，第二个参数认证数据vo对象
-        userInfoService.userAuth(AuthContextHolder.getUserId(request),userAuthVo);
+        userInfoService.userAuth(AuthContextHolder.getUserId(request), userAuthVo);
         return Result.ok();
     }
 
