@@ -252,6 +252,7 @@ public class ScheduleServiceImpl extends ServiceImpl<ScheduleMapper, Schedule> i
     @Override
     public Schedule getById(String id) {
         Schedule schedule = scheduleRepository.findById(id).get();
+        scheduleRepository.getScheduleByHosScheduleId(id);
         return this.packageSchedule(schedule);
     }
 
